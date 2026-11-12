@@ -1598,8 +1598,10 @@ th, tr {
 }
 #spinButton {
 	z-index: 13;
-	display: table;
-	border-collapse: collapse;
+	/* was display: table, which this Chromium stretches over the whole holder (a giant red oval hiding the wheel) */
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	pointer-events: auto;
 	cursor: pointer;
 	border-radius: 50%;

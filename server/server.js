@@ -11,6 +11,9 @@
 const { WebSocketServer } = require('ws');
 const { load } = require('./loader');
 const discovery = require('./discovery');
+const accounts = require('./accounts');
+const social = require('./social');
+const mpconfig = require('../main/mpconfig');
 
 const MAPS = { burg: 0, littletown: 1, sandstorm: 2, subzero: 3, kanji: 4 };
 const TICK = 1000 / 30;   // config.serverTickRate
@@ -39,7 +42,32 @@ function start(opts = {}) {
     broadcast(room, label, ...args) { for (const c of clients.values()) sendTo(c, label, ...args); },
   };
 
-  const game = new Game(false, 0, null, null, null, null, net);
+  const settings = mpconfig();
+  const acc = accounts.create(bundle, {
+    startingKR: opts.startingKR != null ? opts.startingKR : settings.startingKR,
+    freeSpins: opts.freeSpins != null ? opts.freeSpins : settings.freeSpins,
+    file: opts.accountsFile, log,
+  });
+  // the game's database calls: 0x14 pays out a round's KR ('id,kr,...' -> 'funds,...'); the rest we save ourselves
+  const dbCalls = {
+    call(id, args, cb) {
+      if (id === 0x14) { const result = acc.reward(args[0]); cb && cb(null, [[{ result }]]); }
+      else { acc.save(); cb && cb(null, []); }
+    },
+  };
+
+  const game = new Game(false, 0, dbCalls, null, null, null, net);
+  const soc = social.create(acc, {
+    log,
+    // an account's KR, items or clan changed (a sale, a gift, a clan): its sessions get the new data
+    notify(a) {
+      for (const c of clients.values()) if (c.account === a) {
+        sendTo(c, 'ua', a.getData());
+        if (c.player) c.player.clan = a.clan || null;
+      }
+    },
+    online: () => new Set([...clients.values()].filter(c => c.account).map(c => c.account.name)),
+  });
   game.applyConfig(opts.config || {});
   game.init(opts.map != null ? opts.map : MAPS.kanji, opts.mode != null ? opts.mode : 0);
   log(`map ${game.map.maps[game.mapIndex].name}, ${game.mode.name}`);
@@ -92,8 +120,13 @@ function start(opts = {}) {
     const cls = game.config.classes.includes(classIndex) ? classIndex : 0;
     const old = game.players.list.find(p => p.id === c.id);
     const sp = game.getSpawnPoint(old && old.team, old);
+    // cosmetics: only what this account owns (guests get the defaults)
+    const own = v => (Number.isInteger(v) && acc.owns(c.account, v) ? v : -1);
     const p = game.players.add(c.id, old && old.sid, sp.x, sp.y, sp.z, c.name, cls,
-      Array.isArray(skins) ? skins.slice(0, 2) : [-1, -1], hat, back, melee, skinCol, secIndex, false);
+      Array.isArray(skins) ? skins.slice(0, 2).map(own) : [-1, -1], own(hat), own(back), own(melee), skinCol, secIndex, false);
+    p.account = c.account || null;
+    p.clan = c.account && c.account.clan || null;   // the [TAG] next to the name
+    p.level = c.account ? Math.max(1, Math.floor(0.03 * Math.sqrt(c.account.score || 0))) : 0;   // config.rankVar
     p.sprayIndex = spray || 0;
     p.xDire = -((sp.dir || 0) + 1) * Math.PI / 2;
     p.active = true;
@@ -145,7 +178,46 @@ function start(opts = {}) {
         }
         break;
       case 'k': if (p && p.active) game.players.useStreak(p, args[0]); break;
-      default: break;   // account, store, voting, custom games: not here
+      case 'a': {   // account: -1 log out, 0 register, 1 log in
+        if (args[0] === -1) { c.account = null; if (p) p.account = null; break; }
+        const [err, id, name, data, token, a] = acc.auth(args[0], args[1]);
+        sendTo(c, 'a', err, id, name, data, token);
+        if (err) break;
+        c.account = a;
+        c.name = name;
+        if (p) { p.account = a; p.name = name; game.players.syncLeaders(); }
+        log(`${name} logged in`);
+        break;
+      }
+      case 'spin': {
+        const r = acc.spin(c.account, args[0]);
+        if (r.error) { sendTo(c, 'spin', 0, 0, c.account ? c.account.funds : 0, 1); break; }
+        c.unboxed = r;
+        sendTo(c, 'spin', r.pos, r.ind, c.account.funds, null);
+        break;
+      }
+      case 'spinN': {   // the multi-spin: 'spinN', wheel, count -> 'spinN', [[ind, rarity, pos], ...], funds, error
+        const r = acc.spinMany(c.account, args[0], args[1]);
+        if (r.error) { sendTo(c, 'spinN', [], c.account ? c.account.funds : 0, 1); break; }
+        sendTo(c, 'spinN', r.results.map(x => [x.ind, x.rarity, x.pos]), c.account.funds, null);   // pos: where its wheel stops
+        for (const x of r.results) if (x.rarity >= 3) net.broadcast(null, 'unb', c.name, x.ind);
+        break;
+      }
+      case 'soc': {   // the Social panel: 'soc', reqId, action, args -> 'socR', reqId, error, data
+        const [err, data] = soc.handle(c.account, String(args[1]), args[2] || {});
+        sendTo(c, 'socR', args[0], err, data);
+        break;
+      }
+      case 'cln': case 'clnR': {   // the game's clan window
+        const r = soc.gameClan(c.account, label, args);
+        if (r) sendTo(c, 'cln', ...r);
+        break;
+      }
+      case 'unbx':   // the wheel stopped: tell everyone about a Legendary or better
+        if (c.unboxed && c.unboxed.rarity >= 3) net.broadcast(null, 'unb', c.name, c.unboxed.ind);
+        c.unboxed = null;
+        break;
+      default: break;   // voting, custom games, the KR shop: not here
     }
   }
 
@@ -185,12 +257,13 @@ function start(opts = {}) {
     opts.onReady && opts.onReady();
   });
   wss.on('error', err => {   // e.g. EADDRINUSE: another server already has the port
-    clearInterval(timer);
+    clearInterval(timer); clearInterval(saver);
     if (opts.onError) opts.onError(err); else { log(err.code === 'EADDRINUSE' ? `port ${port} is already in use` : err.message); process.exit(1); }
   });
 
   // simulation + updates
   let last = Date.now(), sendT = 0;
+  const saver = setInterval(() => acc.save(), 30000);   // stats from the round in progress
   const timer = setInterval(() => {
     const now = Date.now();
     const dt = Math.min(now - last, 250);
@@ -223,7 +296,7 @@ function start(opts = {}) {
       net.broadcast(null, ...initArgs());
       log(`map ${game.map.maps[game.mapIndex].name}`);
     },
-    close() { clearInterval(timer); wss.close(); lan && lan.close(); },
+    close() { clearInterval(timer); clearInterval(saver); acc.saveNow(); wss.close(); lan && lan.close(); },
   };
 }
 
@@ -232,10 +305,11 @@ module.exports = { start, MAPS };
 if (require.main === module) {
   const arg = k => { const i = process.argv.indexOf('--' + k); return i > 0 ? process.argv[i + 1] : undefined; };
   const map = arg('map');
-  start({
+  const srv = start({
     port: Number(arg('port')) || 8080,
     name: arg('name'),
     map: map == null ? undefined : (MAPS[map.toLowerCase()] != null ? MAPS[map.toLowerCase()] : Number(map)),
     mode: arg('mode') === 'tdm' ? 1 : 0,
   });
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { srv.close(); process.exit(0); });
 }

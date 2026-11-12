@@ -2,6 +2,7 @@ const msgpack = require('msgpack-lite')
 const cfg = require('./mpconfig.js')()
 window.LOG = console.log
 window.KRUNKER_ONLINE = cfg.mode !== 'offline'
+window.KRUNKER_AFK_KICK = !!cfg.afkKick
 const picked = (process.argv.find(a => a.startsWith('--krunker-server=')) || '').slice('--krunker-server='.length)   // auto mode's pick
 const SERVER = picked ? picked : cfg.mode === 'join'
     ? `ws://${cfg.joinAddress.includes(':') ? cfg.joinAddress : cfg.joinAddress + ':' + cfg.port}/`
@@ -19,3 +20,5 @@ class HookedWebSocket extends WebSocket {
 	}
 };
 window.WebSocket = HookedWebSocket;
+require('./spins_ui.js')()   // open several at once and fast open, on the prize wheel
+require('./social_ui.js')()   // the Social panel: profiles, leaderboards, market, clans

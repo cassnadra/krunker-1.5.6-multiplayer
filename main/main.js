@@ -161,7 +161,7 @@ function createWindow() {
         switch (f.key){
             case "Escape":
                 e.preventDefault()
-                mainWindow.webContents.executeJavaScript("document.exitPointerLock()")
+                mainWindow.webContents.executeJavaScript("document.exitPointerLock(); window.__krEsc && __krEsc()")   // __krEsc: closes the Social panel
                 break
             case "F11":
                 mainWindow.setFullScreen(!mainWindow.isFullScreen())
@@ -179,6 +179,8 @@ function createWindow() {
     })
 }
 
+
+app.on('before-quit', () => { if (mpServer) mpServer.close() })   // writes accounts.json
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

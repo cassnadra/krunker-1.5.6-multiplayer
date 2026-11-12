@@ -26469,7 +26469,7 @@
             'dmg': 0x42,
             'pierce': 0.85,
             'dmgDrop': 0xa,
-            'scale': 1.3,
+            'scale': 0.0003,   // was 1.3, for an older model: the revolver models here are in the thousands of units like the pistol's
             'leftHoldY': -1.1,
             'rightHoldY': -0.8,
             'leftHoldZ': -0.5,
@@ -83396,7 +83396,7 @@
         }
         function cE2(czK, czL) {
             if (0x0 <= czK && cDZ(czU['get']('generic.wait')),
-                0x0 != czK || cBf)
+                0x0 != czK || cBf || window.KRUNKER_ONLINE)   // our server has no reCAPTCHA
                 cAG['send']('a', czK, czL);
             else {
                 try {
@@ -84280,7 +84280,7 @@
                             'ind': czL,
                             'cnt': 0x1
                         });
-                spinRotation = 0x0,
+                spinRotation = window.__krFast ? cHI - 0.001 : 0x0,   // fast open: the wheel is already there
                     cHP = 0x0,
                     spinCost['innerHTML'] = '',
                     (cHv = new cAx['Scene']())['add'](new cAx['AmbientLight'](0x4f4f4f));
@@ -84324,6 +84324,7 @@
         cHS['setPixelRatio'](0.6 * window['devicePixelRatio']),
             cHR['position']['y'] = 0xa,
             spinItemCanvas['appendChild'](cHS['domElement']),
+            window.__kr = { THREE: cAx, rend: cAA, game: cAH, utils: cAy, audio: cAB, acct: () => cAK, net: () => cAG, refresh: () => cDL() },   // make_previews.js and main/spins_ui.js use these
             window['prizeWheel'] = function (czK) {
                 (cHx = cAH['store']['wheels'][czK])['openURL'] && window['openURL'](czN['followURLS'][cAy['randInt'](0x0, czN['followURLS']['length'] - 0x1)]),
                     cHJ = czK,
@@ -85395,7 +85396,7 @@
                     0x0 >= nukeFlash['style']['opacity'] && (nukeFlash['style']['opacity'] = 0x0,
                         nukeFlash['style']['display'] = 'none')),
                 cAz['render'](cBk, cAH, cAA, cAJ),
-                window['spectating'] || 'block' != menuHolder['style']['display'] || !czN['isProd'] || cAV || cAK && cAK['developer'] || (window['idleTimer'] += cB6,
+                !window.KRUNKER_AFK_KICK || window['spectating'] || 'block' != menuHolder['style']['display'] || !czN['isProd'] || cAV || cAK && cAK['developer'] || (window['idleTimer'] += cB6,
                     window['idleTimer'] >= czN['kickTimer'] && cNB(czU['get']('player.inactive'))),
                 requestAnimFrame(cN8);
         }
@@ -85564,6 +85565,8 @@
                             'upMp': cIw,
                             'lock': cJE,
                             'spin': cHX,
+                            'spinN': function () { window.__krSpinN && window.__krSpinN.apply(null, arguments); },   // main/spins_ui.js
+                            'socR': function () { window.__krSocR && window.__krSocR.apply(null, arguments); },   // main/social_ui.js
                             'unb': cHT,
                             'end': cJG,
                             'pErr': purchaseError,

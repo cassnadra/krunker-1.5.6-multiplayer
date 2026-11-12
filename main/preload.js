@@ -1,7 +1,9 @@
 const msgpack = require('msgpack-lite')
 const cfg = require('./mpconfig.js')()
 window.LOG = console.log
-window.KRUNKER_ONLINE = cfg.mode !== 'offline'
+// the start screen can pick offline after multiplayer.json was read: main.js passes the mode it ended up with
+const MODE = (process.argv.find(a => a.startsWith('--krunker-mode=')) || '').slice('--krunker-mode='.length) || cfg.mode
+window.KRUNKER_ONLINE = MODE !== 'offline'
 window.KRUNKER_AFK_KICK = !!cfg.afkKick
 const picked = (process.argv.find(a => a.startsWith('--krunker-server=')) || '').slice('--krunker-server='.length)   // auto mode's pick
 const NAME = (process.argv.find(a => a.startsWith('--krunker-name=')) || '').slice('--krunker-name='.length) || cfg.name   // main.js: multiplayer.json's or your Steam name

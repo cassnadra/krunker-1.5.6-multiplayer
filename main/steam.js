@@ -86,12 +86,14 @@ async function join(code) {
     return { url: c.url, code: toCode(lobby.id), host: false, invite: () => lobby.openInviteDialog(), close() { c.close(); lobby.leave() } }
 }
 
-// our games in the lobby list: [{ code, name, map, mode, players }]
+// our games in the lobby list: [{ code, name, map, mode, players, mi, max }]
 async function find() {
     const lobbies = await client.matchmaking.getLobbies()
     return lobbies.filter(l => l.getData('game') === GAME).map(l => ({
         code: toCode(l.id), name: l.getData('name') || '?', map: l.getData('map') || '', mode: l.getData('mode') || '',
         players: Number(l.getData('players')) || Number(l.getMemberCount()),
+        mi: l.getData('mi') === null || l.getData('mi') === '' ? null : Number(l.getData('mi')),   // mode index, for matchmaking
+        max: Number(l.getData('max')) || 16,
     }))
 }
 

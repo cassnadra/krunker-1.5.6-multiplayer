@@ -41,6 +41,24 @@ ode_modules\electron\dist\electron.exe" profile=private`
 
 Everyone needs this whole folder, including `node_modules`.
 
+## The start screen
+
+With `"mode": "auto"` (the default) the game opens on a start screen: your name, a mode and map, and
+
+- **PLAY** - matchmaking: joins the fullest Steam game in that mode that has room (up to 8), or hosts one that
+  others then join the same way. All player-hosted, no server anywhere.
+- **Join a friend** - paste the code they sent (a Steam lobby code, or an address like `192.168.1.20`). A code that's
+  already on the clipboard is filled in.
+- **Games you can join** - games on your network and on Steam.
+- **Host your own instead**, and **Play offline**.
+
+It remembers your name, mode and map in `multiplayer.json`. Nobody has to edit that file any more.
+
+## The download for friends
+
+`powershell -ExecutionPolicy Bypass -File tools\package.ps1` builds `dist\Krunker\` and `dist\Krunker-win64.zip`:
+unzip, double-click `Krunker.exe`, nothing to install. It leaves out your own `serverccounts.json`.
+
 ## Steam (through Spacewar)
 
 With Steam running, games also go through Steam: no port forwarding, no Tailscale, and friends anywhere can join.

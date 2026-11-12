@@ -1,6 +1,7 @@
 const { app, BrowserWindow, session, protocol, Menu, dialog, ipcMain } = require('electron')
 const gameserver = require('./gameserver.js')
-const cfg = require('./mpconfig.js')()
+const config = require('./mpconfig.js')
+const cfg = config()
 let mpServer = null   // host mode: the multiplayer server (server/server.js)
 // Steam lobbies and P2P (main/steam.js): on unless multiplayer.json has "steam": false, and never in tests
 const steam = require('./steam.js')
@@ -14,6 +15,8 @@ process.on('uncaughtException', err => {   // don't die silently with no window
 const fs = require('fs')
 const path = require('path')
 Menu.setApplicationMenu(null)
+// tests get their own browser profile (saved login, settings), never the player's
+if (process.env.KRUNKER_TEST) app.setPath('userData', path.join(require('os').tmpdir(), 'krunker_test_profile'))
 
 const MAPS={
     burg:0,
@@ -50,6 +53,8 @@ app.whenReady().then(() => {
         if (u.hostname === 'krunker.io') {
             const f = path.join(ROOT, decodeURIComponent(u.pathname === '/' ? '/index.html' : u.pathname))
             if (f.startsWith(ROOT) && fs.existsSync(f) && fs.statSync(f).isFile()) return result(file(f))
+            // the region ping (krunker.io/ping) a new player's game does before it looks for a game
+            if (u.pathname.includes('ping')) return result(file(path.join(__dirname, 'apireqs/ping.json')))
         } else if (u.hostname.endsWith('krunker.io')) {   // matchmaker.krunker.io and its ping
             if (u.pathname.includes('ping')) return result(file(path.join(__dirname, 'apireqs/ping.json')))
             if (u.hostname.includes('matchmaker')) { console.log('-> Caught matchmaker'); return result(file(path.join(__dirname, 'apireqs/matchmakerSeekgame.json'))) }
@@ -58,7 +63,7 @@ app.whenReady().then(() => {
         result({ error: -6 })   // net::ERR_FILE_NOT_FOUND
     })
 
-    if (cfg.mode === 'auto') autoStart()
+    if (cfg.mode === 'auto') TEST && !process.env.KRUNKER_LAUNCHER ? autoStart() : launcher()   // KRUNKER_LAUNCHER: test the start screen
     else if (cfg.mode === 'host') host()
     else if (cfg.mode === 'join' && /^steam:/i.test(cfg.joinAddress)) {   // "joinAddress": "steam:<lobby code>"
         if (STEAM) joinSteam(cfg.joinAddress)
@@ -72,12 +77,19 @@ app.whenReady().then(() => {
     })
 })
 
-function host() {
+// the game modes (the game's own list, bundle module 0x27), for the start screen and matchmaking
+const MODES = ['Free for All', 'Team Deathmatch', 'Hardpoint', 'Capture the Flag', 'Parkour', 'Hide & Seek', 'Infected', 'Race',
+    'Last Man Standing', 'Simon Says', 'Gun Game']
+const MATCH_SIZE = 8   // matchmaking fills games up to this many players
+
+// host a game here (opts: map name, mode index); other players join over the LAN, Tailscale or Steam
+function host(opts = {}) {
     const { start, MAPS: SMAPS } = require('../server/server.js')
-    const map = SMAPS[String(cfg.map).toLowerCase()]
+    const map = SMAPS[String(opts.map || cfg.map).toLowerCase()]
     serverUrl = null   // our own: preload uses 127.0.0.1
     mpServer = start({
-        port: cfg.port, map: map == null ? undefined : map, name: playerName() + "'s game", onReady: () => { createWindow(); steamHost() },
+        port: cfg.port, map: map == null ? undefined : map, mode: Number(opts.mode) || 0, lan: !TEST,   // tests stay off the LAN
+        name: playerName() + "'s game", onReady: () => { createWindow(); steamHost() },
         // the port is taken - most likely a server.bat already running here: play on that one
         onError: err => { console.log('[server]', err.code || err.message, '- joining the server already on port ' + cfg.port); mpServer = null; createWindow() }
     })
@@ -86,7 +98,8 @@ function host() {
 // the hosted game also gets a Steam lobby, kept up to date with the player count and map
 function steamHost() {
     if (!STEAM || !mpServer) return
-    const info = () => ({ players: mpServer.clients.size, map: mpServer.game.map.maps[mpServer.game.mapIndex].name, mode: mpServer.game.mode.name })
+    const info = () => ({ players: mpServer.clients.size, map: mpServer.game.map.maps[mpServer.game.mapIndex].name, mode: mpServer.game.mode.name,
+        mi: mpServer.game.modeIndex, max: MATCH_SIZE })
     steam.host(Object.assign({ port: cfg.port, name: playerName() + "'s game" }, info())).then(g => {
         steamGame = g
         sendSteam()
@@ -94,7 +107,7 @@ function steamHost() {
     }).catch(e => console.log('steam: no lobby -', e.message))
 }
 
-// join a Steam lobby by its code: the game connects to the local end of the P2P bridge
+// join a Steam lobby by its code: the game connects to the local end of the P2P bridge; true when it worked
 async function joinSteam(code, onFail) {
     try {
         const g = await steam.join(code)
@@ -102,10 +115,95 @@ async function joinSteam(code, onFail) {
         steamGame = g
         serverUrl = g.url
     } catch (e) {
+        if (onFail) { onFail("Couldn't join that game: " + e.message); return false }
         dialog.showErrorBox('Krunker - Steam', "Couldn't join that Steam game: " + e.message)
-        return onFail ? onFail() : app.quit()
+        app.quit()
+        return false
     }
     createWindow()
+    return true
+}
+
+// matchmaking, all player-hosted: the fullest Steam game in this mode that has room, or else host one (others then
+// find it the same way). Without Steam it just hosts, for the LAN.
+async function matchmake(mode, map) {
+    if (STEAM) {
+        const games = (await steam.find().catch(() => [])).filter(g => g.mi === mode && g.players < g.max)
+            .sort((a, b) => b.players - a.players)
+        for (const g of games.slice(0, 5)) if (await joinSteam(g.code, msg => console.log('matchmaking:', msg))) return
+    }
+    host({ mode, map })
+}
+
+// the start screen (main/launcher.html), for "auto": your name, host, join a friend's code, the games found, offline
+let launcherWindow = null
+function launcher() {
+    const w = launcherWindow = new BrowserWindow({
+        width: 860, height: 700, resizable: false, title: 'Krunker', icon: path.join(__dirname, 'krunkerio/favicon.ico'), show: !TEST,
+        backgroundColor: '#16161d', webPreferences: { nodeIntegration: true, contextIsolation: false, sandbox: false },
+    })
+    w.loadFile(path.join(__dirname, 'launcher.html'))
+    const send = info => !w.isDestroyed() && w.webContents.send('krLauncher', info)
+    const discovery = require('../server/discovery.js')
+    let searching = true
+    async function search() {   // the LAN and Steam, every few seconds while it's open
+        while (searching && !w.isDestroyed()) {
+            const [lan, onSteam] = await Promise.all([
+                discovery.scan(1500).catch(() => []),
+                STEAM ? steam.find().catch(() => []) : [],
+            ])
+            const games = [
+                ...lan.map(s => ({ steam: false, name: s.name, map: s.map, mode: s.mode, players: s.players, target: s.address + (s.port == 8080 ? '' : ':' + s.port) })),
+                ...onSteam.map(s => ({ steam: true, name: s.name, map: s.map, mode: s.mode, players: s.players, target: s.code })),
+            ].sort((a, b) => b.players - a.players)
+            send({ games })
+            await new Promise(r => setTimeout(r, 2500))
+        }
+    }
+    ipcMain.removeAllListeners('krLauncherReady')
+    ipcMain.on('krLauncherReady', () => {
+        send({ name: playerName(), map: String(cfg.map).toLowerCase(), modes: MODES, mode: Number(cfg.gameMode) || 0, steam: STEAM ? steam.name() : false })
+        search()
+    })
+    ipcMain.removeAllListeners('krLaunch')
+    ipcMain.on('krLaunch', async (e, { action, name, map, mode, target }) => {
+        name = String(name || '').replace(/[^\w \-.[\]]/g, '').trim().slice(0, 16)
+        if (name) { cfg.name = name; config.save({ name }) }
+        if (map) { cfg.map = map; config.save({ map }) }
+        mode = Number(mode) || 0
+        if (action === 'play' || action === 'host') { cfg.gameMode = mode; config.save({ gameMode: mode }) }
+        const done = () => { searching = false; if (!w.isDestroyed()) w.destroy(); launcherWindow = null }
+        const fail = msg => send({ error: msg })
+        if (action === 'host') { host({ mode, map }); return done() }
+        if (action === 'play') { send({ status: 'Looking for a game...' }); await matchmake(mode, map); return done() }
+        if (action === 'offline') { cfg.mode = 'offline'; gameserver(defaultSelectedMap, createWindow); return done() }
+        // join: a Steam lobby code, or an address (LAN, Tailscale, port forwarding)
+        target = String(target || '').trim()
+        const address = target.replace(/^ws:\/\//i, '').replace(/\/$/, '')
+        if (/[.:]/.test(address) || /^localhost$/i.test(address)) {
+            const hasPort = /^[^:]+:\d+$/.test(address) || /^\[.*\]:\d+$/.test(address)   // "1.2.3.4:8080", "[::1]:8080"
+            const url = `ws://${hasPort ? address : address + ':' + cfg.port}/`
+            if (!(await reachable(url))) return fail(`Nobody is hosting at ${address}. Check it with your friend.`)
+            serverUrl = url
+            createWindow()
+            return done()
+        }
+        if (!STEAM) return fail("Steam isn't running, so codes don't work. Open Steam and restart the game.")
+        joinSteam(target, fail).then(() => { if (BrowserWindow.getAllWindows().length > 1) done() })
+    })
+    w.on('closed', () => { searching = false; launcherWindow = null })
+}
+
+// is a game server answering at this address? (a quick WebSocket connect)
+function reachable(url) {
+    return new Promise(res => {
+        const WebSocket = require('ws')
+        const ws = new WebSocket(url + '?name=probe', { handshakeTimeout: 4000 })
+        const end = ok => { try { ws.terminate() } catch (e) { } res(ok) }
+        ws.on('open', () => end(true))
+        ws.on('error', () => end(false))
+        setTimeout(() => end(false), 5000)
+    })
 }
 
 // "auto": like LAN worlds in Minecraft - look for games on the network and in Steam, pick one, or host your own
@@ -150,7 +248,7 @@ ipcMain.on('krSteamInvite', () => steamGame && steamGame.invite())
 if (STEAM) steam.onJoinRequest(async code => {
     const old = BrowserWindow.getAllWindows()
     if (mpServer) { mpServer.close(); mpServer = null }
-    await joinSteam(code, () => { })
+    await joinSteam(code, msg => dialog.showErrorBox('Krunker - Steam', msg))
     if (BrowserWindow.getAllWindows().length > old.length) old.forEach(w => w.destroy())   // the new window is up
 })
 
@@ -169,7 +267,7 @@ function createWindow() {
             // Electron 10's defaults, which newer Electron no longer has
             contextIsolation: false,
             sandbox: false,
-            additionalArguments: [...(serverUrl ? ['--krunker-server=' + serverUrl] : []), '--krunker-name=' + playerName()],
+            additionalArguments: [...(serverUrl ? ['--krunker-server=' + serverUrl] : []), '--krunker-name=' + playerName(), '--krunker-mode=' + cfg.mode],
             // the page is served as https://krunker.io; this lets it reach ws:// servers on other PCs (mixed content)
             allowRunningInsecureContent: true,
             backgroundThrottling: !TEST

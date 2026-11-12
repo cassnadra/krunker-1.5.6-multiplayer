@@ -8,3 +8,4 @@ node_modules/*
 !node_modules/isarray/
 !node_modules/steamworks.js/
 server/accounts.json
+dist/

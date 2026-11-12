@@ -1,0 +1,13 @@
+KRUNKER 1.5.6
+
+1. Unzip this whole folder somewhere (not inside the zip).
+2. Double-click Krunker.exe.
+   Windows might say "Windows protected your PC": click "More info", then "Run anyway".
+
+On the start screen:
+- PLAY finds a game in the mode you picked, or starts one that others join.
+- To play with a friend: they press PLAY (or host), a code shows at the top of their menu, they send it to you,
+  you paste it in "Join a friend" and press JOIN.
+- Have Steam open to play with people over the internet. (Steam will say you're playing "Spacewar". That's normal.)
+
+Your account, KR and skins are kept by whoever hosts the game.

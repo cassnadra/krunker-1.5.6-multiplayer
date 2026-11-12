@@ -9,7 +9,7 @@
 const fs = require('fs')
 const path = require('path')
 
-const FILE = path.join(__dirname, '..', 'multiplayer.json')
+const FILE = process.env.KRUNKER_CONFIG || path.join(__dirname, '..', 'multiplayer.json')   // KRUNKER_CONFIG: tests use their own
 const DEFAULTS = { mode: 'auto', name: 'Player', joinAddress: '127.0.0.1', port: 8080, map: 'kanji', afkKick: false, startingKR: 999999, freeSpins: true, steam: true, steamOverlay: false }
 
 module.exports = function readConfig() {
@@ -23,4 +23,11 @@ module.exports = function readConfig() {
     if (process.env.KRUNKER_PORT) cfg.port = Number(process.env.KRUNKER_PORT)
     cfg.mode = String(cfg.mode).toLowerCase()
     return cfg
+}
+
+// the start screen remembers your name and map: written into multiplayer.json, keeping everything else in it
+module.exports.save = function save(changes) {
+    let file = {}
+    try { file = JSON.parse(fs.readFileSync(FILE, 'utf8')) } catch (e) { }
+    try { fs.writeFileSync(FILE, JSON.stringify(Object.assign(file, changes), null, 4) + '\n') } catch (e) { }
 }

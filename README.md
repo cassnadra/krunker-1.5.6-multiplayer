@@ -1,10 +1,13 @@
-﻿<div align="center">
+<div align="center">
   	<p align="center">
 		<a><img src="https://krunker.io/img/krunker_logo_0.png" width="600"></a>
   	</p>
 </div>
 
 # Krunker v1.5.6 - Offline
+
+> **Multiplayer added:** double-click `play.bat` (it downloads Electron the first time, no Node.js needed).
+> Host or join a game by editing `multiplayer.json`. See [MULTIPLAYER.md](MULTIPLAYER.md).
 
 Yeah this is exactly what the title says. 
 This is Krunker, version 1.5.6 released on August 19, 2019, which is just the version in which the commando class was added in game. I made it so that you can play that version of the game, right now, by downloading this and following the instructions properly. However, there are some major drawbacks.

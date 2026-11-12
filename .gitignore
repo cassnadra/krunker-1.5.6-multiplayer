@@ -1,0 +1,8 @@
+# Electron (170 MB) is downloaded by setup.bat / play.bat; only the small runtime libraries are kept here
+node_modules/*
+!node_modules/ws/
+!node_modules/msgpack-lite/
+!node_modules/event-lite/
+!node_modules/ieee754/
+!node_modules/int64-buffer/
+!node_modules/isarray/

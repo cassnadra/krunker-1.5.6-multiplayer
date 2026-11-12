@@ -82501,7 +82501,7 @@
             }
             ,
             window['enterGame'] = function () {
-                if (/*cAH['singlePlayer'] && !cBH*/ true) {
+                if (/*cAH['singlePlayer'] && !cBH*/ !window.KRUNKER_ONLINE) {   // multiplayer: the server spawns you
                     cJj('0:00');
                     var czK = cAH['getSpawnPoint'](null, !0x0)
                         , czL = cAH['classes'][parseInt(classIndex)];
@@ -85375,7 +85375,7 @@
                     }(cAN),
                     Howler['pos'](cAJ['x'], cAJ['y'] + cAJ['height'] - czN['cameraHeight'], cAJ['z']),
                     Howler['orientation'](Math['sin'](cAI['xDr'] + Math['PI']), cAI['yDr'], Math['cos'](cAI['xDr'] + Math['PI'])),
-                    /*cAH['singlePlayer']*/true && cAJ['y'] <= cAH['map']['deathY'] && cLk(cAJ['sid'])) : window['spectating'] && (window['spectTarget'] && (window['spectTarget']['active'] ? cAI['followCam'](window['spectTarget'], cB6) : spectMode()),
+                    /*cAH['singlePlayer']*/!window.KRUNKER_ONLINE && cAJ['y'] <= cAH['map']['deathY'] && cLk(cAJ['sid'])) : window['spectating'] && (window['spectTarget'] && (window['spectTarget']['active'] ? cAI['followCam'](window['spectTarget'], cB6) : spectMode()),
                         !window['spectTarget'] && cAI['freeCam'](cB6),
                         Howler['pos'](cAI['object']['position']['x'], cAI['object']['position']['y'], cAI['object']['position']['z']),
                         Howler['orientation'](Math['sin'](cAI['xDr'] + Math['PI']), cAI['yDr'], Math['cos'](cAI['xDr'] + Math['PI']))),

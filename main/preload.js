@@ -4,13 +4,14 @@ window.LOG = console.log
 window.KRUNKER_ONLINE = cfg.mode !== 'offline'
 window.KRUNKER_AFK_KICK = !!cfg.afkKick
 const picked = (process.argv.find(a => a.startsWith('--krunker-server=')) || '').slice('--krunker-server='.length)   // auto mode's pick
+const NAME = (process.argv.find(a => a.startsWith('--krunker-name=')) || '').slice('--krunker-name='.length) || cfg.name   // main.js: multiplayer.json's or your Steam name
 const SERVER = picked ? picked : cfg.mode === 'join'
     ? `ws://${cfg.joinAddress.includes(':') ? cfg.joinAddress : cfg.joinAddress + ':' + cfg.port}/`
     : `ws://127.0.0.1:${cfg.port}/`
 class HookedWebSocket extends WebSocket {
 	constructor(...args){
         let data = [...args]
-        data[0] = window.KRUNKER_ONLINE ? SERVER + '?name=' + encodeURIComponent(cfg.name) : "ws://localhost:8080/"
+        data[0] = window.KRUNKER_ONLINE ? SERVER + '?name=' + encodeURIComponent(NAME) : "ws://localhost:8080/"
         super(...data)
 		this.addEventListener('message', ({ data: packet }) => {
 			let [ label, ...data ] = msgpack.decode(new Uint8Array(packet).slice(0, -2))
@@ -22,3 +23,4 @@ class HookedWebSocket extends WebSocket {
 window.WebSocket = HookedWebSocket;
 require('./spins_ui.js')()   // open several at once and fast open, on the prize wheel
 require('./social_ui.js')()   // the Social panel: profiles, leaderboards, market, clans
+require('./steam_ui.js')()   // the Steam lobby code, Copy and Invite friends

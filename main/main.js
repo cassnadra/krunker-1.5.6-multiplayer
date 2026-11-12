@@ -1,7 +1,11 @@
-const { app, BrowserWindow, session, protocol, Menu, dialog } = require('electron')
+const { app, BrowserWindow, session, protocol, Menu, dialog, ipcMain } = require('electron')
 const gameserver = require('./gameserver.js')
 const cfg = require('./mpconfig.js')()
 let mpServer = null   // host mode: the multiplayer server (server/server.js)
+// Steam lobbies and P2P (main/steam.js): on unless multiplayer.json has "steam": false, and never in tests
+const steam = require('./steam.js')
+const STEAM = cfg.steam !== false && !process.env.KRUNKER_TEST && steam.start({ log: m => console.log(m), overlay: !!cfg.steamOverlay })
+let steamGame = null   // the Steam lobby this PC hosts or is in: { code, host, invite(), close() }
 process.on('uncaughtException', err => {   // don't die silently with no window
     console.error(err)
     dialog.showErrorBox('Krunker', String(err && err.stack || err))
@@ -22,63 +26,44 @@ const MAPS={
 const defaultSelectedMap = MAPS.kanji
 
 app.whenReady().then(() => {
-    protocol.interceptBufferProtocol("https", (request, result) => {
-        if(request.url === "https://krunker.io/"){
-            let data = fs.readFileSync(path.join(__dirname, 'krunkerio/index.html'))
-            result(Buffer.from(data.toString()))
-            return 
-        } else if(request.url.includes('main.css')){
-            let data = fs.readFileSync(path.join(__dirname, 'krunkerio/css/main.css'))
-            result(Buffer.from(data.toString()))
-            return 
-        } else if(request.url.includes('material_icons.css')){
-            let data = fs.readFileSync(path.join(__dirname, 'krunkerio/css/material_icons.css'))
-            result(Buffer.from(data.toString()))
-            return 
+    // The page thinks it's on https://krunker.io: its files come from krunkerio/, its CDN libraries from libs/vendor, the
+    // matchmaker gets the canned answers in apireqs/, and anything else on the internet (Google sign-in, PayPal, ads)
+    // is "not found" straight away.
+    // Every request gets an answer: one left waiting can stall the page's loading for good on newer Electron.
+    const ROOT = path.join(__dirname, 'krunkerio')
+    const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png',
+        '.jpg': 'image/jpeg', '.gif': 'image/gif', '.ico': 'image/x-icon', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+        '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.obj': 'text/plain', '.gltf': 'model/gltf+json', '.txt': 'text/plain', '.wasm': 'application/wasm' }
+    // the libraries index.html loads from CDNs, kept in krunkerio/libs/vendor so the game runs without the internet
+    const VENDOR = {
+        'code.jquery.com/jquery-3.2.1.min.js': 'jquery-3.2.1.min.js', 'code.jquery.com/ui/1.12.1/jquery-ui.js': 'jquery-ui-1.12.1.js',
+        'cdnjs.cloudflare.com/ajax/libs/howler/2.0.9/howler.min.js': 'howler-2.0.9.min.js',
+        'cdnjs.cloudflare.com/ajax/libs/tween.js/16.3.5/Tween.min.js': 'tween-16.3.5.min.js',
+        'www.google.com/recaptcha/api.js': 'recaptcha-stub.js',   // calls captchaCallback, which starts the connection
+    }
+    const file = f => ({ data: fs.readFileSync(f), mimeType: TYPES[path.extname(f).toLowerCase()] || 'application/octet-stream' })
+    protocol.interceptBufferProtocol('https', (request, result) => {
+        let u
+        try { u = new URL(request.url) } catch (e) { return result({ error: -6 }) }
+        const vendored = VENDOR[u.hostname + u.pathname]
+        if (vendored) return result(file(path.join(ROOT, 'libs', 'vendor', vendored)))
+        if (u.hostname === 'krunker.io') {
+            const f = path.join(ROOT, decodeURIComponent(u.pathname === '/' ? '/index.html' : u.pathname))
+            if (f.startsWith(ROOT) && fs.existsSync(f) && fs.statSync(f).isFile()) return result(file(f))
+        } else if (u.hostname.endsWith('krunker.io')) {   // matchmaker.krunker.io and its ping
+            if (u.pathname.includes('ping')) return result(file(path.join(__dirname, 'apireqs/ping.json')))
+            if (u.hostname.includes('matchmaker')) { console.log('-> Caught matchmaker'); return result(file(path.join(__dirname, 'apireqs/matchmakerSeekgame.json'))) }
         }
-        protocol.uninterceptProtocol('https')
-        console.log(request.url)
-    })
-    protocol.interceptFileProtocol('krnk', (details,callback)=>{
-
-        let filepath = details.url.replace('krnk://',(__dirname).replaceAll('\\',"/")+"/krunkerio/")
-
-        if(filepath.includes('?')){
-            filepath = filepath.substring(0, filepath.indexOf('?'))
-        }
-        if(fs.existsSync(filepath)){
-            callback(filepath)
-            return
-        }
-        if(filepath.includes("matchmaker.krunker.io")){
-            console.log('-> Caught matchmaker')
-            callback(path.join(__dirname, 'apireqs/matchmakerSeekgame.json'))
-            return
-        }
-        if(filepath.includes('ping')){
-           callback(path.join(__dirname, 'apireqs/ping.json'))
-           return
-        }
-        callback()
-    })
-    session.defaultSession.webRequest.onBeforeRequest((request,callback)=>{
-        if(request.url.replaceAll('/','') === "https:krunker.io"){return}
-        if(request.url.startsWith('https://krunker.io/')){
-            let urlpath = request.url.replace('https://krunker.io/','')
-            if(urlpath.startsWith('/')){urlpath=urlpath.replace('/','')}
-            callback({redirectURL:'krnk://'+urlpath})
-            return
-        }
-        if(request.url.includes('matchmaker')){
-            callback({redirectURL:'krnk://matchmaker.krunker.io'})
-            return
-        }
-
-        callback(request)
+        if (TEST) console.log('[net] not found:', request.url)
+        result({ error: -6 })   // net::ERR_FILE_NOT_FOUND
     })
 
     if (cfg.mode === 'auto') autoStart()
     else if (cfg.mode === 'host') host()
+    else if (cfg.mode === 'join' && /^steam:/i.test(cfg.joinAddress)) {   // "joinAddress": "steam:<lobby code>"
+        if (STEAM) joinSteam(cfg.joinAddress)
+        else { dialog.showErrorBox('Krunker - Steam', 'Steam is not running (or "steam" is false in multiplayer.json).'); app.quit() }
+    }
     else if (cfg.mode === 'join') createWindow()
     else gameserver(defaultSelectedMap, createWindow)
 
@@ -92,33 +77,82 @@ function host() {
     const map = SMAPS[String(cfg.map).toLowerCase()]
     serverUrl = null   // our own: preload uses 127.0.0.1
     mpServer = start({
-        port: cfg.port, map: map == null ? undefined : map, name: cfg.name + "'s game", onReady: () => createWindow(),
+        port: cfg.port, map: map == null ? undefined : map, name: playerName() + "'s game", onReady: () => { createWindow(); steamHost() },
         // the port is taken - most likely a server.bat already running here: play on that one
         onError: err => { console.log('[server]', err.code || err.message, '- joining the server already on port ' + cfg.port); mpServer = null; createWindow() }
     })
 }
 
-// "auto": like LAN worlds in Minecraft - look for servers on the network, pick one, or host your own
+// the hosted game also gets a Steam lobby, kept up to date with the player count and map
+function steamHost() {
+    if (!STEAM || !mpServer) return
+    const info = () => ({ players: mpServer.clients.size, map: mpServer.game.map.maps[mpServer.game.mapIndex].name, mode: mpServer.game.mode.name })
+    steam.host(Object.assign({ port: cfg.port, name: playerName() + "'s game" }, info())).then(g => {
+        steamGame = g
+        sendSteam()
+        setInterval(() => mpServer && g.update(info()), 10000)
+    }).catch(e => console.log('steam: no lobby -', e.message))
+}
+
+// join a Steam lobby by its code: the game connects to the local end of the P2P bridge
+async function joinSteam(code, onFail) {
+    try {
+        const g = await steam.join(code)
+        if (steamGame) steamGame.close()
+        steamGame = g
+        serverUrl = g.url
+    } catch (e) {
+        dialog.showErrorBox('Krunker - Steam', "Couldn't join that Steam game: " + e.message)
+        return onFail ? onFail() : app.quit()
+    }
+    createWindow()
+}
+
+// "auto": like LAN worlds in Minecraft - look for games on the network and in Steam, pick one, or host your own
 let serverUrl = null
 async function autoStart() {
-    const found = (await require('../server/discovery.js').scan(TEST ? 1000 : 1500))
+    const [lan, onSteam] = await Promise.all([
+        require('../server/discovery.js').scan(TEST ? 1000 : 1500),
+        STEAM ? steam.find().catch(e => (console.log('steam: no lobby list -', e.message), [])) : [],
+    ])
+    const found = [...lan.map(s => Object.assign({ steam: false }, s)), ...onSteam.map(s => Object.assign({ steam: true }, s))]
         .sort((a, b) => (b.players || 0) - (a.players || 0))
     console.log('[lan] found', JSON.stringify(found))
     if (!found.length) return host()
-    let pick = 0
+    let pick = found.findIndex(s => !s.steam)
+    if (pick < 0) pick = 0
     if (!TEST) {
-        const label = s => `${s.name} - ${s.map}, ${s.players} playing  (${s.address}${s.port == 8080 ? '' : ':' + s.port})`
+        const label = s => s.steam ? `[Steam] ${s.name} - ${s.map}, ${s.players} playing`
+            : `${s.name} - ${s.map}, ${s.players} playing  (${s.address}${s.port == 8080 ? '' : ':' + s.port})`
         const buttons = [...found.slice(0, 8).map(label), 'Host my own game', 'Quit']
         pick = (await dialog.showMessageBox({
-            type: 'question', title: 'Krunker - LAN games', message: 'Games on your network:',
+            type: 'question', title: 'Krunker - games', message: 'Games on your network' + (STEAM ? ' and on Steam:' : ':'),
             buttons, cancelId: buttons.length - 1, noLink: true, defaultId: 0
         })).response
         if (pick === buttons.length - 1) return app.quit()
         if (pick === buttons.length - 2) return host()
     }
+    if (found[pick].steam) return joinSteam(found[pick].code, host)
     serverUrl = `ws://${found[pick].address}:${found[pick].port}/`
     createWindow()
 }
+
+// your name: multiplayer.json's, or your Steam name if you left it at "Player"
+const playerName = () => (cfg.name === 'Player' && STEAM && steam.name()) || cfg.name
+
+// the page's Steam box (main/steam_ui.js): the lobby code, Copy and Invite
+function sendSteam() {
+    for (const w of BrowserWindow.getAllWindows()) w.webContents.send('krSteam', steamGame ? { code: steamGame.code, host: steamGame.host, overlay: !!cfg.steamOverlay } : null)
+}
+ipcMain.on('krSteamInvite', () => steamGame && steamGame.invite())
+
+// a friend's invite accepted, or "Join Game" clicked on a friend in Steam, while the game is open: go to their game
+if (STEAM) steam.onJoinRequest(async code => {
+    const old = BrowserWindow.getAllWindows()
+    if (mpServer) { mpServer.close(); mpServer = null }
+    await joinSteam(code, () => { })
+    if (BrowserWindow.getAllWindows().length > old.length) old.forEach(w => w.destroy())   // the new window is up
+})
 
 // KRUNKER_TEST=1: tests - a hidden window, the page's console in this terminal, and it enters the game by itself
 const TEST = !!process.env.KRUNKER_TEST
@@ -131,13 +165,18 @@ function createWindow() {
         icon: path.join(__dirname, 'krunkerio/favicon.ico'),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
-            additionalArguments: serverUrl ? ['--krunker-server=' + serverUrl] : [],
+            // the preload (preload.js, spins_ui.js, social_ui.js) works on the game's own window and loads modules:
+            // Electron 10's defaults, which newer Electron no longer has
+            contextIsolation: false,
+            sandbox: false,
+            additionalArguments: [...(serverUrl ? ['--krunker-server=' + serverUrl] : []), '--krunker-name=' + playerName()],
             // the page is served as https://krunker.io; this lets it reach ws:// servers on other PCs (mixed content)
             allowRunningInsecureContent: true,
             backgroundThrottling: !TEST
         }
     })
     mainWindow.loadURL('https://krunker.io/')
+    mainWindow.webContents.on('did-finish-load', () => sendSteam())
     if (TEST) {
         mainWindow.webContents.on('console-message', (e, level, msg) => console.log('[page]', msg.slice(0, 300)))
         let tries = 0
@@ -180,7 +219,7 @@ function createWindow() {
 }
 
 
-app.on('before-quit', () => { if (mpServer) mpServer.close() })   // writes accounts.json
+app.on('before-quit', () => { if (mpServer) mpServer.close(); if (steamGame) steamGame.close() })   // writes accounts.json
 
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

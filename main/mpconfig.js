@@ -4,11 +4,13 @@
 //   name: your name in game; port: the server's port; map (host): burg, littletown, sandstorm, subzero or kanji
 //   afkKick: kick yourself back to the menu after 90 s idle in the menu (off by default)
 //   startingKR / freeSpins (host): every account has at least this much KR / spinning costs nothing
+//   steam: Steam lobbies and P2P through Spacewar (main/steam.js), when Steam is running; joinAddress "steam:<code>"
+//   steamOverlay: Steam's overlay in the game (for Invite friends); off by default
 const fs = require('fs')
 const path = require('path')
 
 const FILE = path.join(__dirname, '..', 'multiplayer.json')
-const DEFAULTS = { mode: 'auto', name: 'Player', joinAddress: '127.0.0.1', port: 8080, map: 'kanji', afkKick: false, startingKR: 999999, freeSpins: true }
+const DEFAULTS = { mode: 'auto', name: 'Player', joinAddress: '127.0.0.1', port: 8080, map: 'kanji', afkKick: false, startingKR: 999999, freeSpins: true, steam: true, steamOverlay: false }
 
 module.exports = function readConfig() {
     let cfg = {}

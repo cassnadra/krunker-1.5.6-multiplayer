@@ -6,4 +6,5 @@ node_modules/*
 !node_modules/ieee754/
 !node_modules/int64-buffer/
 !node_modules/isarray/
+!node_modules/steamworks.js/
 server/accounts.json

@@ -41,6 +41,27 @@ ode_modules\electron\dist\electron.exe" profile=private`
 
 Everyone needs this whole folder, including `node_modules`.
 
+## Steam (through Spacewar)
+
+With Steam running, games also go through Steam: no port forwarding, no Tailscale, and friends anywhere can join.
+It uses Spacewar, Valve's free test app (ID 480), so Steam shows you as playing Spacewar while the game is open.
+
+- **Hosting** (`host`, or `auto` with nobody around) opens a Steam lobby as well. Its code shows at the top of
+  the menu, with **Copy**.
+- **Joining:** `auto` lists Steam games next to LAN ones (`[Steam] Bob's game ...`). Or put the code in
+  `multiplayer.json`: `"mode": "join", "joinAddress": "steam:u0w2pmmbpaq"`. Or click **Join Game** on your friend in
+  the Steam friends list while your game is open.
+- `"steamOverlay": true` turns on Steam's overlay in the game and the **Invite friends** button. It's off by default:
+  the overlay changes how the game is drawn.
+- `"steam": false` turns all of it off.
+
+Spacewar's lobby list is shared with everyone else testing with app 480; ours are marked and the rest are skipped,
+but with very many lobbies around, Steam may not list yours. The code and Join Game always work.
+
+How it works: the game still talks WebSocket. On the PC that joins, it connects to a little relay on 127.0.0.1 that
+sends everything to the host over Steam's P2P (`server/steam_bridge.js`); on the host, each Steam player becomes a
+normal connection to the server. `node server/steam_bridge_test.js` tests that part without Steam.
+
 ## Accounts, KR and skins
 
 Accounts live on the server, in `server/accounts.json` on the PC that hosts. Register or log in from the account

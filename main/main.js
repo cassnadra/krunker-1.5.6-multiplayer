@@ -77,24 +77,48 @@ app.whenReady().then(() => {
         callback(request)
     })
 
-    if (cfg.mode === 'host') {
-        const { start, MAPS: SMAPS } = require('../server/server.js')
-        const map = SMAPS[String(cfg.map).toLowerCase()]
-        mpServer = start({
-            port: cfg.port, map: map == null ? undefined : map, onReady: createWindow,
-            // the port is taken - most likely a server.bat already running here: play on that one
-            onError: err => { console.log('[server]', err.code || err.message, '- joining the server already on port ' + cfg.port); mpServer = null; createWindow() }
-        })
-    } else if (cfg.mode === 'join') {
-        createWindow()
-    } else {
-        gameserver(defaultSelectedMap, createWindow)
-    }
+    if (cfg.mode === 'auto') autoStart()
+    else if (cfg.mode === 'host') host()
+    else if (cfg.mode === 'join') createWindow()
+    else gameserver(defaultSelectedMap, createWindow)
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
 })
+
+function host() {
+    const { start, MAPS: SMAPS } = require('../server/server.js')
+    const map = SMAPS[String(cfg.map).toLowerCase()]
+    serverUrl = null   // our own: preload uses 127.0.0.1
+    mpServer = start({
+        port: cfg.port, map: map == null ? undefined : map, name: cfg.name + "'s game", onReady: () => createWindow(),
+        // the port is taken - most likely a server.bat already running here: play on that one
+        onError: err => { console.log('[server]', err.code || err.message, '- joining the server already on port ' + cfg.port); mpServer = null; createWindow() }
+    })
+}
+
+// "auto": like LAN worlds in Minecraft - look for servers on the network, pick one, or host your own
+let serverUrl = null
+async function autoStart() {
+    const found = (await require('../server/discovery.js').scan(TEST ? 1000 : 1500))
+        .sort((a, b) => (b.players || 0) - (a.players || 0))
+    console.log('[lan] found', JSON.stringify(found))
+    if (!found.length) return host()
+    let pick = 0
+    if (!TEST) {
+        const label = s => `${s.name} - ${s.map}, ${s.players} playing  (${s.address}${s.port == 8080 ? '' : ':' + s.port})`
+        const buttons = [...found.slice(0, 8).map(label), 'Host my own game', 'Quit']
+        pick = (await dialog.showMessageBox({
+            type: 'question', title: 'Krunker - LAN games', message: 'Games on your network:',
+            buttons, cancelId: buttons.length - 1, noLink: true, defaultId: 0
+        })).response
+        if (pick === buttons.length - 1) return app.quit()
+        if (pick === buttons.length - 2) return host()
+    }
+    serverUrl = `ws://${found[pick].address}:${found[pick].port}/`
+    createWindow()
+}
 
 // KRUNKER_TEST=1: tests - a hidden window, the page's console in this terminal, and it enters the game by itself
 const TEST = !!process.env.KRUNKER_TEST
@@ -107,6 +131,9 @@ function createWindow() {
         icon: path.join(__dirname, 'krunkerio/favicon.ico'),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
+            additionalArguments: serverUrl ? ['--krunker-server=' + serverUrl] : [],
+            // the page is served as https://krunker.io; this lets it reach ws:// servers on other PCs (mixed content)
+            allowRunningInsecureContent: true,
             backgroundThrottling: !TEST
         }
     })

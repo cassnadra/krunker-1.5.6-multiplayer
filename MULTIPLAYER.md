@@ -11,6 +11,7 @@ Edit `multiplayer.json`, then double-click `play.bat`.
 
 | `mode`    | what it does |
 |-----------|--------------|
+| `auto`    | **the default, like LAN worlds in Minecraft:** looks for games on your network and lets you pick one; if there are none, hosts one |
 | `host`    | runs the server on this PC and you play on it; others join you |
 | `join`    | plays on someone else's server at `joinAddress` (e.g. `"192.168.1.20"` or `"1.2.3.4:8080"`) |
 | `offline` | the old single-player version |
@@ -25,8 +26,13 @@ As host, **F4** changes the map for everyone.
 
 ## Who can join
 
-- **Same Wi-Fi / LAN:** they join your PC's local address (run `ipconfig` and look for the IPv4 Address).
+- **Same Wi-Fi / LAN:** with `auto`, your game shows up in their list automatically. Servers answer scans on UDP port
+  47800. `join` with your local address works too; run `ipconfig` and look for the IPv4 Address.
   The first time you host, Windows asks whether to let it through the firewall; allow **Private networks**.
+  If nobody can see or join you, run this once in an administrator Command Prompt:
+  `netsh advfirewall firewall add rule name="Krunker" dir=in action=allow program="%CD%
+ode_modules\electron\dist\electron.exe" profile=private`
+  (run it from this folder).
 - **Over the internet:** either forward TCP port 8080 on your router to your PC and give them your public IP,
   or install Tailscale on both PCs and use your Tailscale address (no router changes needed).
 

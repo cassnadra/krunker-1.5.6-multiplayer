@@ -10,6 +10,7 @@
 'use strict';
 const { WebSocketServer } = require('ws');
 const { load } = require('./loader');
+const discovery = require('./discovery');
 
 const MAPS = { burg: 0, littletown: 1, sandstorm: 2, subzero: 3, kanji: 4 };
 const TICK = 1000 / 30;   // config.serverTickRate
@@ -174,7 +175,15 @@ function start(opts = {}) {
     sendTo(c, 'io-init', [id]);
     sendTo(c, 'load', 20000);
   });
-  wss.on('listening', () => { log(`listening on port ${port}`); opts.onReady && opts.onReady(); });
+  let lan = null;
+  wss.on('listening', () => {
+    log(`listening on port ${port}`);
+    if (opts.lan !== false) lan = discovery.answer(() => ({
+      name: opts.name || require('os').hostname(), port, map: game.map.maps[game.mapIndex].name, mode: game.mode.name,
+      players: clients.size,
+    }), log);
+    opts.onReady && opts.onReady();
+  });
   wss.on('error', err => {   // e.g. EADDRINUSE: another server already has the port
     clearInterval(timer);
     if (opts.onError) opts.onError(err); else { log(err.code === 'EADDRINUSE' ? `port ${port} is already in use` : err.message); process.exit(1); }
@@ -214,7 +223,7 @@ function start(opts = {}) {
       net.broadcast(null, ...initArgs());
       log(`map ${game.map.maps[game.mapIndex].name}`);
     },
-    close() { clearInterval(timer); wss.close(); },
+    close() { clearInterval(timer); wss.close(); lan && lan.close(); },
   };
 }
 
@@ -225,6 +234,7 @@ if (require.main === module) {
   const map = arg('map');
   start({
     port: Number(arg('port')) || 8080,
+    name: arg('name'),
     map: map == null ? undefined : (MAPS[map.toLowerCase()] != null ? MAPS[map.toLowerCase()] : Number(map)),
     mode: arg('mode') === 'tdm' ? 1 : 0,
   });

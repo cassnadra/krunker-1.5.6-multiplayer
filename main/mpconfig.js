@@ -1,11 +1,12 @@
 // multiplayer.json next to package.json:
-//   mode: "offline" (the old single-player stub), "host" (run the server here and play on it) or "join" (play on joinAddress)
+//   mode: "auto" (find a game on the LAN, or host one if there's none), "host" (run the server here and play on it),
+//         "join" (play on joinAddress) or "offline" (the old single-player stub)
 //   name: your name in game; port: the server's port; map (host): burg, littletown, sandstorm, subzero or kanji
 const fs = require('fs')
 const path = require('path')
 
 const FILE = path.join(__dirname, '..', 'multiplayer.json')
-const DEFAULTS = { mode: 'host', name: 'Player', joinAddress: '127.0.0.1', port: 8080, map: 'kanji' }
+const DEFAULTS = { mode: 'auto', name: 'Player', joinAddress: '127.0.0.1', port: 8080, map: 'kanji' }
 
 module.exports = function readConfig() {
     let cfg = {}

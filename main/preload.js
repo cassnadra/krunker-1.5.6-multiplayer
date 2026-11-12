@@ -2,7 +2,8 @@ const msgpack = require('msgpack-lite')
 const cfg = require('./mpconfig.js')()
 window.LOG = console.log
 window.KRUNKER_ONLINE = cfg.mode !== 'offline'
-const SERVER = cfg.mode === 'join'
+const picked = (process.argv.find(a => a.startsWith('--krunker-server=')) || '').slice('--krunker-server='.length)   // auto mode's pick
+const SERVER = picked ? picked : cfg.mode === 'join'
     ? `ws://${cfg.joinAddress.includes(':') ? cfg.joinAddress : cfg.joinAddress + ':' + cfg.port}/`
     : `ws://127.0.0.1:${cfg.port}/`
 class HookedWebSocket extends WebSocket {
